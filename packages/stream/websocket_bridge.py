@@ -1,88 +1,91 @@
-"""WebSocket bridge broadcasting normalized task events."""
+"""WebSocket bridge to stream shared task state updates to clients."""
 
 from __future__ import annotations
 
 import asyncio
 import json
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Set
 
 from packages.coordination.shared_task_manager import SharedTaskManager
 
-EVENTS = {
-    "task.created",
-    "agent.started",
-    "agent.response",
-    "task.completed",
-    "task.failed",
-}
+try:
+    import websockets
+    from websockets.server import WebSocketServerProtocol
+except ImportError as exc:  # pragma: no cover
+    raise RuntimeError("Install websockets to run websocket_bridge.py") from exc
 
 
-def normalize_task_events(task: Dict[str, Any]) -> List[Dict[str, Any]]:
-    out: List[Dict[str, Any]] = []
-    for item in task.get("history", []):
-        event = item.get("event")
-        if event not in EVENTS:
-            continue
-        out.append(
-            {
-                "event": event,
-                "task_id": task["id"],
-                "status": task.get("status"),
-                "agent": item.get("agent"),
-                "timestamp": item.get("at"),
-                "version": task.get("version"),
-            }
-        )
-    return out
+class WebSocketBridge:
+    def __init__(
+        self,
+        manager: SharedTaskManager,
+        state_file: str | Path = "shared_task.json",
+        host: str = "0.0.0.0",
+        port: int = 8765,
+        heartbeat_s: int = 15,
+    ) -> None:
+        self.manager = manager
+        self.state_file = Path(state_file)
+        self.host = host
+        self.port = port
+        self.heartbeat_s = heartbeat_s
+        self.clients: Set[WebSocketServerProtocol] = set()
 
+    async def _register(self, ws: WebSocketServerProtocol) -> None:
+        self.clients.add(ws)
+        await ws.send(json.dumps({"type": "task.snapshot", "payload": self.manager.read_state()}))
 
-async def run_bridge(
-    host: str = "0.0.0.0",
-    port: int = 8765,
-    state_path: str | Path = "shared_task.json",
-    poll_interval_s: float = 0.5,
-) -> None:
-    try:
-        import websockets
-    except ImportError as exc:  # pragma: no cover
-        raise RuntimeError("Install `websockets` to run the WS bridge") from exc
+    async def _unregister(self, ws: WebSocketServerProtocol) -> None:
+        self.clients.discard(ws)
 
-    manager = SharedTaskManager(state_path)
-    clients: set[Any] = set()
+    async def _broadcast(self, event: dict) -> None:
+        if not self.clients:
+            return
+        payload = json.dumps(event)
+        stale = set()
+        for client in list(self.clients):
+            try:
+                await client.send(payload)
+            except Exception:
+                stale.add(client)
+        for client in stale:
+            await self._unregister(client)
 
-    async def handler(websocket):
-        clients.add(websocket)
-        try:
-            while True:
-                await asyncio.sleep(15)
-                await websocket.ping()
-        finally:
-            clients.discard(websocket)
-
-    async def broadcaster():
-        seen = set()
+    async def _watch_file(self) -> None:
+        last_mtime = 0.0
         while True:
-            tasks = manager.list_tasks()
-            frames = []
-            for task in tasks:
-                for event in normalize_task_events(task):
-                    key = (event["task_id"], event["event"], event["version"], event["timestamp"])
-                    if key in seen:
-                        continue
-                    seen.add(key)
-                    frames.append(json.dumps(event, ensure_ascii=False))
-            for frame in frames:
-                for ws in list(clients):
-                    try:
-                        await ws.send(frame)
-                    except Exception:
-                        clients.discard(ws)
-            await asyncio.sleep(poll_interval_s)
+            try:
+                mtime = self.state_file.stat().st_mtime
+            except FileNotFoundError:
+                mtime = 0.0
+            if mtime > last_mtime:
+                last_mtime = mtime
+                await self._broadcast(
+                    {
+                        "type": "task.state.updated",
+                        "payload": self.manager.read_state(),
+                    }
+                )
+            await asyncio.sleep(0.5)
 
-    async with websockets.serve(handler, host, port):
-        await broadcaster()
+    async def _heartbeat(self) -> None:
+        while True:
+            await self._broadcast({"type": "system.heartbeat"})
+            await asyncio.sleep(self.heartbeat_s)
+
+    async def _handler(self, ws: WebSocketServerProtocol) -> None:
+        await self._register(ws)
+        try:
+            async for _ in ws:
+                pass
+        finally:
+            await self._unregister(ws)
+
+    async def serve(self) -> None:
+        async with websockets.serve(self._handler, self.host, self.port):
+            await asyncio.gather(self._watch_file(), self._heartbeat())
 
 
 if __name__ == "__main__":
-    asyncio.run(run_bridge())
+    asyncio.run(WebSocketBridge(SharedTaskManager()).serve())

@@ -1,52 +1,47 @@
-"""Polling watcher that processes pending tasks as Omega agent."""
+"""OMEGA watcher: finalizes ARK-processed tasks."""
 
 from __future__ import annotations
 
 import time
-from pathlib import Path
 from typing import Callable
 
-from .shared_task_manager import SharedTaskManager, TaskConflictError
+from .shared_task_manager import SharedTaskManager, TaskConflictError, TaskUpdate
 
 
-def default_omega_executor(prompt: str) -> str:
-    return f"[OMEGA] Synthesis complete for: {prompt[:120]}"
+class OmegaWatcher:
+    def __init__(
+        self,
+        manager: SharedTaskManager,
+        process_fn: Callable[[str], str] | None = None,
+        poll_interval: float = 0.75,
+    ) -> None:
+        self.manager = manager
+        self.poll_interval = poll_interval
+        self.process_fn = process_fn or (lambda prompt: f"OMEGA finalized: {prompt}")
 
+    def run_forever(self) -> None:
+        while True:
+            self.run_once()
+            time.sleep(self.poll_interval)
 
-def run_watcher(
-    state_path: str | Path = "shared_task.json",
-    poll_interval_s: float = 0.5,
-    executor: Callable[[str], str] = default_omega_executor,
-) -> None:
-    manager = SharedTaskManager(state_path)
-    while True:
-        tasks = manager.list_tasks()
-        pending = [t for t in tasks if t.get("status") == "pending"]
-        for task in pending:
+    def run_once(self) -> int:
+        processed = 0
+        for task in self.manager.list_tasks(status="processed_by_ark"):
             try:
-                current = manager.update_task(
-                    task["id"],
-                    expected_version=task["version"],
-                    status="processed_by_omega",
-                    event="agent.started",
-                    agent_name="omega",
+                self.manager.update_task(
+                    TaskUpdate(
+                        task_id=task["id"],
+                        status="complete",
+                        agent="omega",
+                        response=self.process_fn(task["prompt"]),
+                        expected_version=task["version"],
+                    )
                 )
-                output = executor(task["prompt"])
-                manager.update_task(
-                    task["id"],
-                    expected_version=current["version"],
-                    status="complete",
-                    event="agent.response",
-                    agent_name="omega",
-                    agent_output=output,
-                )
-                manager.update_task(task["id"], event="task.completed")
+                processed += 1
             except TaskConflictError:
                 continue
-            except Exception:
-                manager.update_task(task["id"], status="failed", event="task.failed")
-        time.sleep(poll_interval_s)
+        return processed
 
 
 if __name__ == "__main__":
-    run_watcher()
+    OmegaWatcher(SharedTaskManager()).run_forever()

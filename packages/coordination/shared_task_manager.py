@@ -1,4 +1,4 @@
-"""Shared task state manager with atomic writes and optimistic concurrency."""
+"""JSON-backed shared task board with optimistic concurrency and file locking."""
 
 from __future__ import annotations
 
@@ -8,133 +8,142 @@ import tempfile
 import time
 import uuid
 from contextlib import contextmanager
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Iterator, List, Optional
+
+import fcntl
 
 
 class TaskConflictError(RuntimeError):
-    """Raised when a task update is attempted with a stale version."""
+    """Raised when task updates fail due to optimistic concurrency mismatch."""
+
+
+@dataclass(frozen=True)
+class TaskUpdate:
+    """State transition request for one task."""
+
+    task_id: str
+    status: str
+    agent: str
+    response: Optional[str] = None
+    expected_version: Optional[int] = None
 
 
 class SharedTaskManager:
-    """Manage task state in a JSON file for local multi-agent coordination."""
+    """Manages a shared task state persisted in one JSON file."""
 
-    def __init__(self, state_path: str | Path = "shared_task.json") -> None:
-        self.state_path = Path(state_path)
-        self.lock_path = self.state_path.with_suffix(self.state_path.suffix + ".lock")
-        self.state_path.parent.mkdir(parents=True, exist_ok=True)
-        if not self.state_path.exists():
-            self._write_state({"tasks": [], "updated_at": self._now()})
+    def __init__(self, state_file: str | Path = "shared_task.json") -> None:
+        self.state_file = Path(state_file)
+        self.lock_file = self.state_file.with_suffix(self.state_file.suffix + ".lock")
+        self.state_file.parent.mkdir(parents=True, exist_ok=True)
+        if not self.state_file.exists():
+            self._atomic_write(self._initial_state())
 
     @staticmethod
-    def _now() -> str:
-        return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    def _initial_state() -> Dict[str, Any]:
+        return {
+            "version": 0,
+            "updated_at": time.time(),
+            "tasks": [],
+        }
 
     @contextmanager
-    def _file_lock(self, timeout_s: float = 5.0, poll_s: float = 0.05):
-        start = time.time()
-        while True:
+    def _file_lock(self) -> Iterator[None]:
+        self.lock_file.parent.mkdir(parents=True, exist_ok=True)
+        with open(self.lock_file, "w", encoding="utf-8") as handle:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
             try:
-                fd = os.open(self.lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-                os.close(fd)
-                break
-            except FileExistsError:
-                if time.time() - start > timeout_s:
-                    raise TimeoutError(f"Unable to acquire lock: {self.lock_path}")
-                time.sleep(poll_s)
-        try:
-            yield
-        finally:
-            try:
-                os.unlink(self.lock_path)
-            except FileNotFoundError:
-                pass
+                yield
+            finally:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
 
-    def _read_state(self) -> Dict[str, Any]:
-        with self.state_path.open("r", encoding="utf-8") as f:
-            return json.load(f)
-
-    def _write_state(self, state: Dict[str, Any]) -> None:
-        data = json.dumps(state, ensure_ascii=False, indent=2)
+    def _atomic_write(self, payload: Dict[str, Any]) -> None:
         with tempfile.NamedTemporaryFile(
-            mode="w", encoding="utf-8", dir=self.state_path.parent, delete=False
+            "w", encoding="utf-8", dir=self.state_file.parent, delete=False
         ) as tmp:
-            tmp.write(data)
-            tmp_name = tmp.name
-        os.replace(tmp_name, self.state_path)
+            json.dump(payload, tmp, ensure_ascii=False, indent=2)
+            tmp.write("\n")
+            tmp.flush()
+            os.fsync(tmp.fileno())
+            temp_path = tmp.name
+        os.replace(temp_path, self.state_file)
 
-    def list_tasks(self) -> List[Dict[str, Any]]:
-        with self._file_lock():
-            return self._read_state().get("tasks", [])
+    def _load_unlocked(self) -> Dict[str, Any]:
+        if not self.state_file.exists():
+            return self._initial_state()
+        with open(self.state_file, "r", encoding="utf-8") as handle:
+            return json.load(handle)
 
-    def get_task(self, task_id: str) -> Optional[Dict[str, Any]]:
+    def read_state(self) -> Dict[str, Any]:
         with self._file_lock():
-            for task in self._read_state().get("tasks", []):
-                if task["id"] == task_id:
-                    return task
-        return None
+            return self._load_unlocked()
 
     def create_task(self, prompt: str, metadata: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        metadata = metadata or {}
         with self._file_lock():
-            state = self._read_state()
+            state = self._load_unlocked()
             task = {
                 "id": str(uuid.uuid4()),
                 "prompt": prompt,
-                "metadata": metadata or {},
                 "status": "pending",
-                "version": 1,
-                "created_at": self._now(),
-                "updated_at": self._now(),
-                "history": [{"event": "task.created", "at": self._now()}],
-                "agent_outputs": {},
+                "created_at": time.time(),
+                "updated_at": time.time(),
+                "version": 0,
+                "history": [
+                    {
+                        "event": "task.created",
+                        "at": time.time(),
+                        "metadata": metadata,
+                    }
+                ],
             }
             state["tasks"].append(task)
-            state["updated_at"] = self._now()
-            self._write_state(state)
+            state["version"] += 1
+            state["updated_at"] = time.time()
+            self._atomic_write(state)
             return task
 
-    def update_task(
-        self,
-        task_id: str,
-        *,
-        expected_version: Optional[int] = None,
-        status: Optional[str] = None,
-        event: Optional[str] = None,
-        agent_name: Optional[str] = None,
-        agent_output: Optional[str] = None,
-    ) -> Dict[str, Any]:
+    def list_tasks(self, status: Optional[str] = None) -> List[Dict[str, Any]]:
         with self._file_lock():
-            state = self._read_state()
-            tasks = state.get("tasks", [])
-            for idx, task in enumerate(tasks):
-                if task["id"] != task_id:
+            tasks = self._load_unlocked()["tasks"]
+        if status is None:
+            return tasks
+        return [task for task in tasks if task["status"] == status]
+
+    def update_task(self, update: TaskUpdate) -> Dict[str, Any]:
+        with self._file_lock():
+            state = self._load_unlocked()
+            for task in state["tasks"]:
+                if task["id"] != update.task_id:
                     continue
-
-                if expected_version is not None and task["version"] != expected_version:
+                if (
+                    update.expected_version is not None
+                    and task["version"] != update.expected_version
+                ):
                     raise TaskConflictError(
-                        f"Stale version: expected={expected_version} actual={task['version']}"
+                        f"Task {update.task_id} version mismatch: "
+                        f"expected {update.expected_version}, got {task['version']}"
                     )
-
-                if status:
-                    task["status"] = status
-                if agent_name and agent_output is not None:
-                    task["agent_outputs"][agent_name] = agent_output
-
+                task["status"] = update.status
                 task["version"] += 1
-                task["updated_at"] = self._now()
-                if event:
-                    entry = {"event": event, "at": self._now()}
-                    if agent_name:
-                        entry["agent"] = agent_name
-                    task["history"].append(entry)
-
-                tasks[idx] = task
-                state["updated_at"] = self._now()
-                self._write_state(state)
+                task["updated_at"] = time.time()
+                task["history"].append(
+                    {
+                        "event": "agent.response",
+                        "agent": update.agent,
+                        "status": update.status,
+                        "response": update.response,
+                        "at": time.time(),
+                    }
+                )
+                state["version"] += 1
+                state["updated_at"] = time.time()
+                self._atomic_write(state)
                 return task
 
-        raise KeyError(f"Task not found: {task_id}")
+        raise KeyError(f"Task {update.task_id} not found")
 
     def reset(self) -> None:
         with self._file_lock():
-            self._write_state({"tasks": [], "updated_at": self._now()})
+            self._atomic_write(self._initial_state())

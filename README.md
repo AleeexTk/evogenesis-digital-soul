@@ -2,50 +2,33 @@
 
 EvoGenesis / EvoPyramid agent runtime: single-agent PEAR loop, memory, governance, Termux edge, 3D pyramid UI.
 
-## Coordination prototype (sandbox migration)
+## Coordination prototype (Sandbox migration)
 
-This repo now includes a local, JSON-backed coordination layer with:
+This repository now includes a JSON-backed multi-agent coordination loop inspired by the `Sandbox.txt` architecture:
 
-- `packages/coordination/shared_task_manager.py` - atomic JSON state + lock file + optimistic concurrency (`version`).
-- `packages/coordination/watcher_ark.py` - polling agent watcher for Ark.
-- `packages/coordination/watcher_omega.py` - polling agent watcher for Omega.
-- `packages/coordination/task_cli.py` - CLI for create/show/reset.
-- `packages/stream/websocket_bridge.py` - WebSocket bridge with normalized event contract.
+- `packages/coordination/shared_task_manager.py` – shared state, atomic writes, file lock, optimistic task version checks.
+- `packages/coordination/watcher_ark.py` – ARK watcher (`pending -> processed_by_ark`).
+- `packages/coordination/watcher_omega.py` – OMEGA watcher (`processed_by_ark -> complete`).
+- `packages/stream/websocket_bridge.py` – websocket state streaming with heartbeat and stale-client cleanup.
 
-## Event contract
-
-Bridge emits the following normalized events for UI consumption:
-
-- `task.created`
-- `agent.started`
-- `agent.response`
-- `task.completed`
-- `task.failed`
-
-Each event includes `task_id`, `status`, `agent`, `timestamp`, and `version`.
-
-## Quickstart
-
-Create a task:
+## Quick start
 
 ```bash
-python -m packages.coordination.task_cli create "Analyze EvoGenesis archive"
+python - <<'PY'
+from packages.coordination.shared_task_manager import SharedTaskManager
+m = SharedTaskManager()
+print(m.create_task("Design an EvoGenesis memory policy"))
+PY
 ```
 
-Show current tasks:
-
-```bash
-python -m packages.coordination.task_cli show
-```
-
-Run watcher(s) in separate terminals:
+Run watchers in separate shells:
 
 ```bash
 python -m packages.coordination.watcher_ark
 python -m packages.coordination.watcher_omega
 ```
 
-Run WebSocket bridge (requires `websockets`):
+Optional websocket stream (requires `websockets` package):
 
 ```bash
 python -m packages.stream.websocket_bridge
