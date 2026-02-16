@@ -44,7 +44,8 @@ class WebSocketBridge:
             return
         payload = json.dumps(event)
         stale = set()
-        for client in list(self.clients):
+        clients_snapshot = tuple(self.clients)
+        for client in clients_snapshot:
             try:
                 await client.send(payload)
             except Exception:
