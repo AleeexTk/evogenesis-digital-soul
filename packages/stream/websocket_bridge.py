@@ -25,7 +25,7 @@ def normalize_task_events(task: Dict[str, Any]) -> List[Dict[str, Any]]:
 
     normalized: List[Dict[str, Any]] = []
     running_status = "pending"
-    running_version = 0
+    running_version: int | None = None
 
     for index, entry in enumerate(history):
         event_type = entry.get("event", "task.updated")
@@ -43,7 +43,12 @@ def normalize_task_events(task: Dict[str, Any]) -> List[Dict[str, Any]]:
 
         inferred_version = entry.get("version")
         if inferred_version is None:
-            inferred_version = 0 if event_type == "task.created" and index == 0 else index
+            if event_type == "task.created" and index == 0:
+                inferred_version = 0
+            elif running_version is None:
+                inferred_version = 0
+            else:
+                inferred_version = running_version + 1
 
         running_status = inferred_status
         running_version = inferred_version
@@ -54,7 +59,7 @@ def normalize_task_events(task: Dict[str, Any]) -> List[Dict[str, Any]]:
                 "payload": {
                     "task_id": task.get("id"),
                     "status": running_status,
-                    "version": running_version,
+                    "version": inferred_version,
                     "at": entry.get("at"),
                     "agent": entry.get("agent"),
                     "response": entry.get("response"),
