@@ -28,18 +28,39 @@ class ArkWatcher:
         processed = 0
         for task in self.manager.list_tasks(status="pending"):
             try:
+                started = self.manager.update_task(
+                    TaskUpdate(
+                        task_id=task["id"],
+                        status="processing_by_ark",
+                        agent="ark",
+                        expected_version=task["version"],
+                    )
+                )
+            except TaskConflictError:
+                continue
+
+            try:
+                response = self.process_fn(task["prompt"])
                 self.manager.update_task(
                     TaskUpdate(
                         task_id=task["id"],
                         status="processed_by_ark",
                         agent="ark",
-                        response=self.process_fn(task["prompt"]),
-                        expected_version=task["version"],
+                        response=response,
+                        expected_version=started["version"],
                     )
                 )
                 processed += 1
-            except TaskConflictError:
-                continue
+            except Exception as exc:
+                self.manager.update_task(
+                    TaskUpdate(
+                        task_id=task["id"],
+                        status="failed",
+                        agent="ark",
+                        response=str(exc),
+                        expected_version=started["version"],
+                    )
+                )
         return processed
 
 

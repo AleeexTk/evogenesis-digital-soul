@@ -28,18 +28,39 @@ class OmegaWatcher:
         processed = 0
         for task in self.manager.list_tasks(status="processed_by_ark"):
             try:
+                started = self.manager.update_task(
+                    TaskUpdate(
+                        task_id=task["id"],
+                        status="processing_by_omega",
+                        agent="omega",
+                        expected_version=task["version"],
+                    )
+                )
+            except TaskConflictError:
+                continue
+
+            try:
+                response = self.process_fn(task["prompt"])
                 self.manager.update_task(
                     TaskUpdate(
                         task_id=task["id"],
                         status="complete",
                         agent="omega",
-                        response=self.process_fn(task["prompt"]),
-                        expected_version=task["version"],
+                        response=response,
+                        expected_version=started["version"],
                     )
                 )
                 processed += 1
-            except TaskConflictError:
-                continue
+            except Exception as exc:
+                self.manager.update_task(
+                    TaskUpdate(
+                        task_id=task["id"],
+                        status="failed",
+                        agent="omega",
+                        response=str(exc),
+                        expected_version=started["version"],
+                    )
+                )
         return processed
 
 

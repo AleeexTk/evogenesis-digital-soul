@@ -12,11 +12,19 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, Iterator, List, Optional
 
-import fcntl
+try:
+    import fcntl  # type: ignore
+except ImportError:  # pragma: no cover - windows fallback
+    fcntl = None
+    import msvcrt  # type: ignore
 
 
 class TaskConflictError(RuntimeError):
     """Raised when task updates fail due to optimistic concurrency mismatch."""
+
+
+class InvalidTaskTransitionError(RuntimeError):
+    """Raised when task transition is not allowed by the state machine."""
 
 
 @dataclass(frozen=True)
@@ -28,6 +36,17 @@ class TaskUpdate:
     agent: str
     response: Optional[str] = None
     expected_version: Optional[int] = None
+    event_type: Optional[str] = None
+
+
+ALLOWED_TRANSITIONS = {
+    "pending": {"processing_by_ark", "processed_by_ark", "failed"},
+    "processing_by_ark": {"processed_by_ark", "failed"},
+    "processed_by_ark": {"processing_by_omega", "complete", "failed"},
+    "processing_by_omega": {"complete", "failed"},
+    "complete": set(),
+    "failed": set(),
+}
 
 
 class SharedTaskManager:
@@ -42,21 +61,23 @@ class SharedTaskManager:
 
     @staticmethod
     def _initial_state() -> Dict[str, Any]:
-        return {
-            "version": 0,
-            "updated_at": time.time(),
-            "tasks": [],
-        }
+        return {"version": 0, "updated_at": time.time(), "tasks": []}
 
     @contextmanager
     def _file_lock(self) -> Iterator[None]:
         self.lock_file.parent.mkdir(parents=True, exist_ok=True)
-        with open(self.lock_file, "w", encoding="utf-8") as handle:
-            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+        with open(self.lock_file, "a+", encoding="utf-8") as handle:
+            if fcntl is not None:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+            else:  # pragma: no cover
+                msvcrt.locking(handle.fileno(), msvcrt.LK_LOCK, 1)
             try:
                 yield
             finally:
-                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+                if fcntl is not None:
+                    fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+                else:  # pragma: no cover
+                    msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
 
     def _atomic_write(self, payload: Dict[str, Any]) -> None:
         with tempfile.NamedTemporaryFile(
@@ -79,28 +100,28 @@ class SharedTaskManager:
         with self._file_lock():
             return self._load_unlocked()
 
+    @staticmethod
+    def _append_history(task: Dict[str, Any], event_type: str, **fields: Any) -> None:
+        task["history"].append({"event": event_type, "at": time.time(), **fields})
+
     def create_task(self, prompt: str, metadata: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         metadata = metadata or {}
         with self._file_lock():
             state = self._load_unlocked()
+            now = time.time()
             task = {
                 "id": str(uuid.uuid4()),
                 "prompt": prompt,
                 "status": "pending",
-                "created_at": time.time(),
-                "updated_at": time.time(),
+                "created_at": now,
+                "updated_at": now,
                 "version": 0,
-                "history": [
-                    {
-                        "event": "task.created",
-                        "at": time.time(),
-                        "metadata": metadata,
-                    }
-                ],
+                "history": [],
             }
+            self._append_history(task, "task.created", metadata=metadata)
             state["tasks"].append(task)
             state["version"] += 1
-            state["updated_at"] = time.time()
+            state["updated_at"] = now
             self._atomic_write(state)
             return task
 
@@ -111,34 +132,46 @@ class SharedTaskManager:
             return tasks
         return [task for task in tasks if task["status"] == status]
 
+    @staticmethod
+    def _validate_transition(old_status: str, new_status: str) -> None:
+        if new_status not in ALLOWED_TRANSITIONS.get(old_status, set()):
+            raise InvalidTaskTransitionError(f"Invalid transition: {old_status} -> {new_status}")
+
+    @staticmethod
+    def _default_event_for_status(status: str) -> str:
+        if status == "complete":
+            return "task.completed"
+        if status == "failed":
+            return "task.failed"
+        if status.startswith("processing_by_"):
+            return "agent.started"
+        return "agent.response"
+
     def update_task(self, update: TaskUpdate) -> Dict[str, Any]:
         with self._file_lock():
             state = self._load_unlocked()
+            now = time.time()
             for task in state["tasks"]:
                 if task["id"] != update.task_id:
                     continue
-                if (
-                    update.expected_version is not None
-                    and task["version"] != update.expected_version
-                ):
+                if update.expected_version is not None and task["version"] != update.expected_version:
                     raise TaskConflictError(
-                        f"Task {update.task_id} version mismatch: "
-                        f"expected {update.expected_version}, got {task['version']}"
+                        f"Task {update.task_id} version mismatch: expected {update.expected_version}, got {task['version']}"
                     )
+
+                self._validate_transition(task["status"], update.status)
                 task["status"] = update.status
                 task["version"] += 1
-                task["updated_at"] = time.time()
-                task["history"].append(
-                    {
-                        "event": "agent.response",
-                        "agent": update.agent,
-                        "status": update.status,
-                        "response": update.response,
-                        "at": time.time(),
-                    }
+                task["updated_at"] = now
+                self._append_history(
+                    task,
+                    update.event_type or self._default_event_for_status(update.status),
+                    agent=update.agent,
+                    status=update.status,
+                    response=update.response,
                 )
                 state["version"] += 1
-                state["updated_at"] = time.time()
+                state["updated_at"] = now
                 self._atomic_write(state)
                 return task
 
