@@ -35,6 +35,8 @@ legacy/
 
 `legacy/Project_Pyramid2024` is archival only; binary artifacts were intentionally removed (`*.png`, `*.zip`) to keep this repository source-only.
 
+Detailed migration roadmap: `docs/core_integration_plan.md`.
+
 ## Coordination prototype (Sandbox migration)
 
 - `packages/coordination/shared_task_manager.py` – shared state, atomic writes, file lock, optimistic task version checks, transition validation.
