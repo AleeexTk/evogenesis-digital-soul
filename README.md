@@ -2,17 +2,48 @@
 
 EvoGenesis / EvoPyramid agent runtime: single-agent PEAR loop, memory, governance, Termux edge, 3D pyramid UI.
 
+## Core role (Nexus / Core Host)
+
+This repository is the **Core System Host** and contains:
+
+- coordination/state-machine nucleus,
+- integration/relay boundary to external services,
+- execution adapters and workers.
+
+## Architecture rules (fixed)
+
+1. **One state machine**: source of truth is `SharedTaskManager`.
+2. **Entry points in `/apps`** only.
+3. **No imports from legacy** paths.
+
+## Repository structure
+
+```text
+apps/
+  nexus_daemon.py
+  websocket_server.py
+  execution_worker.py
+packages/
+  coordination/
+  integration/
+  execution/
+    termux/
+    session/
+legacy/
+  Project_Pyramid2024/
+```
+
+`legacy/Project_Pyramid2024` is archival only.
+
 ## Coordination prototype (Sandbox migration)
 
-This repository includes a JSON-backed multi-agent coordination loop inspired by the `Sandbox.txt` architecture:
-
-- `packages/coordination/shared_task_manager.py` – shared state, atomic writes, file lock, optimistic task version checks, and transition validation.
+- `packages/coordination/shared_task_manager.py` – shared state, atomic writes, file lock, optimistic task version checks, transition validation.
 - `packages/coordination/watcher_ark.py` – ARK watcher (`pending -> processing_by_ark -> processed_by_ark`).
 - `packages/coordination/watcher_omega.py` – OMEGA watcher (`processed_by_ark -> processing_by_omega -> complete`).
 - `packages/coordination/task_cli.py` – CLI manager (`create`, `show`, `reset`).
 - `packages/stream/websocket_bridge.py` – websocket state streaming with heartbeat and stale-client cleanup.
 
-Event contract entries emitted in task history:
+Event contract in task history:
 
 - `task.created`
 - `agent.started`
@@ -20,17 +51,30 @@ Event contract entries emitted in task history:
 - `task.completed`
 - `task.failed`
 
-## Integration with EvoGenesis + EvoPyramid-ai (recommended contract)
+Task identifiers are unified on each task object:
 
-### 1) Minimal network topology
+- `session_id`
+- `task_id` (`id` field)
+- `state_version`
+- per-event `event_id`
 
-- `evogenesis-digital-soul` (this repo): coordination + watchers + WS stream.
+## Execution adapter layer
+
+- `packages/execution/termux/connector.py` – adapter boundary for termux execution.
+- `packages/execution/worker.py` – execution worker pipeline:
+  - `pending -> processing_by_exec -> done`
+  - publishes updates back through `SharedTaskManager`
+  - can relay events through `RelayClient`.
+
+## Integration with EvoGenesis + EvoPyramid-ai
+
+### Minimal network topology
+
+- `evogenesis-digital-soul` (this repo): coordination + execution + WS stream.
 - `EvoGenesis`: receives normalized tasks on `POST /task`.
-- `EvoPyramid-ai`: receives normalized UI/observability events on `POST /api/events` (and/or subscribes WS).
+- `EvoPyramid-ai`: receives normalized observability events on `POST /api/events`.
 
-### 2) Shared env configuration
-
-Use these environment variables in digital-soul:
+### Shared env configuration
 
 ```bash
 export DIGITAL_SOUL_API_BASE="http://127.0.0.1:8080"
@@ -39,34 +83,7 @@ export EVOPYRAMID_API_BASE="http://127.0.0.1:5173"
 export EVO_BRIDGE_AUTH_TOKEN="<optional-bearer-token>"
 ```
 
-The config model is implemented in `packages/integration/bridge_config.py`.
-
-### 3) Cross-repo relay client
-
-`packages/integration/relay.py` provides:
-
-- `relay_task_created(...)` -> sends task envelopes to `EvoGenesis /task`.
-- `relay_task_update(...)` -> sends state events to `EvoPyramid-ai /api/events`.
-
-This is stdlib-only (no `requests` dependency), so it is easy to run in constrained environments.
-
-### 4) Recommended event payload (single contract)
-
-```json
-{
-  "type": "task.state.updated",
-  "payload": {
-    "task_id": "<uuid>",
-    "status": "processed_by_ark",
-    "agent": "ark",
-    "response": "..."
-  }
-}
-```
-
-Keep this envelope stable across all three repositories.
-
-### 5) Quick local bring-up
+## Quick start
 
 Create and inspect tasks:
 
@@ -75,25 +92,10 @@ python -m packages.coordination.task_cli create "Design an EvoGenesis memory pol
 python -m packages.coordination.task_cli show
 ```
 
-Run watchers in separate shells:
+Run services (separate shells):
 
 ```bash
-python -m packages.coordination.watcher_ark
-python -m packages.coordination.watcher_omega
+python apps/nexus_daemon.py
+python apps/execution_worker.py
+python apps/websocket_server.py
 ```
-
-Optional websocket stream (requires `websockets` package):
-
-```bash
-python -m packages.stream.websocket_bridge
-```
-
-If you need to forward events across repos, import and use `RelayClient` from `packages.integration.relay`.
-
-## Russian quick answer to “как настроить связь?”
-
-1. Зафиксируйте единый API-контракт (`/task`, `/api/events`, event envelope выше).
-2. Поднимите три сервиса на разных портах и пропишите `EVOGENESIS_API_BASE` + `EVOPYRAMID_API_BASE`.
-3. В `digital-soul` отправляйте `task.created` в EvoGenesis, а статусы/ответы агентов — в EvoPyramid-ai.
-4. На фронте EvoPyramid-ai подписывайтесь на WS (`task.snapshot`, `task.state.updated`, `system.heartbeat`) для realtime.
-5. Добавьте один общий Bearer token между сервисами (через `EVO_BRIDGE_AUTH_TOKEN`).

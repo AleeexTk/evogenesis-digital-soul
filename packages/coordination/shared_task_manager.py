@@ -40,11 +40,13 @@ class TaskUpdate:
 
 
 ALLOWED_TRANSITIONS = {
-    "pending": {"processing_by_ark", "processed_by_ark", "failed"},
+    "pending": {"processing_by_ark", "processed_by_ark", "processing_by_exec", "failed"},
     "processing_by_ark": {"processed_by_ark", "failed"},
-    "processed_by_ark": {"processing_by_omega", "complete", "failed"},
-    "processing_by_omega": {"complete", "failed"},
+    "processed_by_ark": {"processing_by_omega", "processing_by_exec", "complete", "done", "failed"},
+    "processing_by_omega": {"complete", "done", "failed"},
+    "processing_by_exec": {"done", "complete", "failed"},
     "complete": set(),
+    "done": set(),
     "failed": set(),
 }
 
@@ -102,7 +104,9 @@ class SharedTaskManager:
 
     @staticmethod
     def _append_history(task: Dict[str, Any], event_type: str, **fields: Any) -> None:
-        task["history"].append({"event": event_type, "at": time.time(), **fields})
+        task["history"].append(
+            {"event": event_type, "event_id": str(uuid.uuid4()), "at": time.time(), **fields}
+        )
 
     def create_task(self, prompt: str, metadata: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         metadata = metadata or {}
@@ -111,11 +115,13 @@ class SharedTaskManager:
             now = time.time()
             task = {
                 "id": str(uuid.uuid4()),
+                "session_id": metadata.get("session_id", str(uuid.uuid4())),
                 "prompt": prompt,
                 "status": "pending",
                 "created_at": now,
                 "updated_at": now,
                 "version": 0,
+                "state_version": state["version"] + 1,
                 "history": [],
             }
             self._append_history(task, "task.created", metadata=metadata)
@@ -139,7 +145,7 @@ class SharedTaskManager:
 
     @staticmethod
     def _default_event_for_status(status: str) -> str:
-        if status == "complete":
+        if status in {"complete", "done"}:
             return "task.completed"
         if status == "failed":
             return "task.failed"
@@ -162,6 +168,7 @@ class SharedTaskManager:
                 self._validate_transition(task["status"], update.status)
                 task["status"] = update.status
                 task["version"] += 1
+                task["state_version"] = state["version"] + 1
                 task["updated_at"] = now
                 self._append_history(
                     task,
