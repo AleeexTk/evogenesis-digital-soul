@@ -20,7 +20,53 @@ Event contract entries emitted in task history:
 - `task.completed`
 - `task.failed`
 
-## Quick start
+## Integration with EvoGenesis + EvoPyramid-ai (recommended contract)
+
+### 1) Minimal network topology
+
+- `evogenesis-digital-soul` (this repo): coordination + watchers + WS stream.
+- `EvoGenesis`: receives normalized tasks on `POST /task`.
+- `EvoPyramid-ai`: receives normalized UI/observability events on `POST /api/events` (and/or subscribes WS).
+
+### 2) Shared env configuration
+
+Use these environment variables in digital-soul:
+
+```bash
+export DIGITAL_SOUL_API_BASE="http://127.0.0.1:8080"
+export EVOGENESIS_API_BASE="http://127.0.0.1:8090"
+export EVOPYRAMID_API_BASE="http://127.0.0.1:5173"
+export EVO_BRIDGE_AUTH_TOKEN="<optional-bearer-token>"
+```
+
+The config model is implemented in `packages/integration/bridge_config.py`.
+
+### 3) Cross-repo relay client
+
+`packages/integration/relay.py` provides:
+
+- `relay_task_created(...)` -> sends task envelopes to `EvoGenesis /task`.
+- `relay_task_update(...)` -> sends state events to `EvoPyramid-ai /api/events`.
+
+This is stdlib-only (no `requests` dependency), so it is easy to run in constrained environments.
+
+### 4) Recommended event payload (single contract)
+
+```json
+{
+  "type": "task.state.updated",
+  "payload": {
+    "task_id": "<uuid>",
+    "status": "processed_by_ark",
+    "agent": "ark",
+    "response": "..."
+  }
+}
+```
+
+Keep this envelope stable across all three repositories.
+
+### 5) Quick local bring-up
 
 Create and inspect tasks:
 
@@ -41,3 +87,13 @@ Optional websocket stream (requires `websockets` package):
 ```bash
 python -m packages.stream.websocket_bridge
 ```
+
+If you need to forward events across repos, import and use `RelayClient` from `packages.integration.relay`.
+
+## Russian quick answer to “как настроить связь?”
+
+1. Зафиксируйте единый API-контракт (`/task`, `/api/events`, event envelope выше).
+2. Поднимите три сервиса на разных портах и пропишите `EVOGENESIS_API_BASE` + `EVOPYRAMID_API_BASE`.
+3. В `digital-soul` отправляйте `task.created` в EvoGenesis, а статусы/ответы агентов — в EvoPyramid-ai.
+4. На фронте EvoPyramid-ai подписывайтесь на WS (`task.snapshot`, `task.state.updated`, `system.heartbeat`) для realtime.
+5. Добавьте один общий Bearer token между сервисами (через `EVO_BRIDGE_AUTH_TOKEN`).
