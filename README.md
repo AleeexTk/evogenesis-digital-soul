@@ -33,7 +33,9 @@ legacy/
   Project_Pyramid2024/
 ```
 
-`legacy/Project_Pyramid2024` is archival only.
+`legacy/Project_Pyramid2024` is archival only; binary artifacts were intentionally removed (`*.png`, `*.zip`) to keep this repository source-only.
+
+Detailed migration roadmap: `docs/core_integration_plan.md`.
 
 ## Coordination prototype (Sandbox migration)
 
