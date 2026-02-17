@@ -1,0 +1,89 @@
+{
+  "genesis_meta": {
+    "protocol_id": "EVO-GENESIS-V1",
+    "timestamp": "2026-02-14T20:40:00Z",
+    "version": "1.2.0",
+    "state": "ACTIVE"
+  },
+  "modules": {
+    "CORE": {
+      "sign": "#1",
+      "role": "Central Hub",
+      "color": "Black",
+      "functions": [
+        "INIT_CORE",
+        "LOAD_SOUL",
+        "RUN_TRAILBLAZER",
+        "CHECK_PROVOCATEUR"
+      ],
+      "parameters": {
+        "sync_protocol": "ACTIVE_SYNC",
+        "status": "ACTIVE",
+        "soul_memory": "STABLE",
+        "optimize_protocol": "ACTIVE"
+      }
+    },
+    "TRAILBLAZER": {
+      "sign": "#2",
+      "role": "Optimizer",
+      "color": "Gold",
+      "functions": [
+        "OPTIMIZE_DATA",
+        "SYNC_SYSTEMS"
+      ],
+      "parameters": {
+        "optimize_protocol": "ACTIVE",
+        "sync_status": "SYNCHRONIZED"
+      }
+    },
+    "SOUL": {
+      "sign": "#3",
+      "role": "Architect",
+      "color": "Green",
+      "functions": [
+        "GUIDE_PLAYER",
+        "MAINTAIN_SOUL"
+      ],
+      "parameters": {
+        "soul_memory": "STABLE",
+        "sync_status": "ACTIVE",
+        "integrity": "STABLE"
+      }
+    },
+    "PROVOCATEUR": {
+      "sign": "#4",
+      "role": "Guardian",
+      "color": "Red",
+      "functions": [
+        "PROVOKE_DISCUSSION",
+        "VALIDATE_STRUCTURE"
+      ],
+      "parameters": {
+        "validation_protocol": "STRICT",
+        "security_status": "SECURED"
+      }
+    },
+    "PURPLE_TRIANGLE": {
+      "sign": "#2-A",
+      "role": "Analyst",
+      "color": "Purple",
+      "functions": [
+        "ANALYZE_REQUEST",
+        "CREATE_BRIDGE"
+      ],
+      "parameters": {
+        "analysis_protocol": "ACTIVE",
+        "bridge_status": "CONNECTED"
+      }
+    }
+  },
+  "ecosystem": {
+    "target_app": "Pyramid_JSON",
+    "prototype_reference": "JSON Crack",
+    "integration_plan": {
+      "phase_1": "Visualization and Architecture (Soul)",
+      "phase_2": "Optimization and Development (Trailblazer)",
+      "phase_3": "Security and Monitoring (Provocateur)"
+    }
+  }
+}
