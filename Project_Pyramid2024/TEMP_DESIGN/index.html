@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EVO_PYRAMID 3D | Digital Soul Interface</title>
+    <link rel="stylesheet" href="style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Orbitron:wght@400;700;900&display=swap" rel="stylesheet">
+</head>
+<body>
+    <!-- Background Effects -->
+    <div class="stars"></div>
+    <div class="grid-overlay"></div>
+    
+    <!-- Header -->
+    <header>
+        <div class="logo">
+            <span class="symbol">▲</span> 
+            <span class="title">EVO_PYRAMID</span>
+            <span class="version">v1.3</span>
+        </div>
+        
+        <div class="status-panel">
+            <div class="status-item" data-module="CORE">
+                <span class="indicator core-indicator"></span>
+                <span class="label">CORE</span>
+            </div>
+            <div class="status-item" data-module="SOUL">
+                <span class="indicator soul-indicator"></span>
+                <span class="label">SOUL</span>
+            </div>
+            <div class="status-item" data-module="TRAILBLAZER">
+                <span class="indicator trail-indicator"></span>
+                <span class="label">TRAILBLAZER</span>
+            </div>
+            <div class="status-item" data-module="PROVOCATEUR">
+                <span class="indicator prov-indicator"></span>
+                <span class="label">PROVOCATEUR</span>
+            </div>
+            <div class="status-item" data-module="PURPLE_TRIANGLE">
+                <span class="indicator purple-indicator"></span>
+                <span class="label">ANALYST</span>
+            </div>
+        </div>
+        
+        <div class="controls-header">
+            <button id="btn-reset-view" class="btn-icon" title="Reset Camera">
+                <span>⟲</span>
+            </button>
+            <button id="btn-auto-rotate" class="btn-icon active" title="Auto Rotate">
+                <span>🔄</span>
+            </button>
+            <div class="lang-switcher">
+                <button class="lang-btn active" onclick="setLanguage('ua')">UA</button>
+                <span class="divider">/</span>
+                <button class="lang-btn" onclick="setLanguage('en')">EN</button>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Container -->
+    <main>
+        <!-- 3D Viewport -->
+        <section class="viewport-container">
+            <div class="viewport-header">
+                <h2>3D VISUALIZATION</h2>
+                <div class="hint">🖱️ Click and drag to rotate • Scroll to zoom</div>
+            </div>
+            <div id="canvas-container"></div>
+            
+            <!-- Info Panel Overlay -->
+            <div class="info-overlay" id="info-overlay">
+                <div class="info-content">
+                    <button class="close-btn" id="close-info">×</button>
+                    <h3 id="info-title">MODULE INFO</h3>
+                    <div class="info-grid">
+                        <div class="info-item">
+                            <span class="info-label">SIGN:</span>
+                            <span class="info-value" id="info-sign">-</span>
+                        </div>
+                        <div class="info-item">
+                            <span class="info-label">ROLE:</span>
+                            <span class="info-value" id="info-role">-</span>
+                        </div>
+                        <div class="info-item">
+                            <span class="info-label">COLOR:</span>
+                            <span class="info-value" id="info-color">-</span>
+                        </div>
+                        <div class="info-item">
+                            <span class="info-label">STATUS:</span>
+                            <span class="info-value" id="info-status">-</span>
+                        </div>
+                    </div>
+                    <div class="info-section">
+                        <h4>FUNCTIONS:</h4>
+                        <ul id="info-functions"></ul>
+                    </div>
+                    <div class="info-section">
+                        <h4>PARAMETERS:</h4>
+                        <div id="info-parameters"></div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Control Panel -->
+        <aside class="control-panel">
+            <div class="panel-section">
+                <h3>PROTOCOL DATA</h3>
+                <div class="protocol-info">
+                    <div class="data-row">
+                        <span class="data-label">Protocol ID:</span>
+                        <span class="data-value" id="protocol-id">-</span>
+                    </div>
+                    <div class="data-row">
+                        <span class="data-label">Version:</span>
+                        <span class="data-value" id="protocol-version">-</span>
+                    </div>
+                    <div class="data-row">
+                        <span class="data-label">State:</span>
+                        <span class="data-value status-active" id="protocol-state">-</span>
+                    </div>
+                    <div class="data-row">
+                        <span class="data-label">Timestamp:</span>
+                        <span class="data-value" id="protocol-time">-</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="panel-section">
+                <h3>MODULE SELECTOR</h3>
+                <div class="module-buttons">
+                    <button class="module-btn core-btn" data-module="CORE">
+                        <span class="module-icon">◆</span>
+                        <span class="module-name">CORE</span>
+                    </button>
+                    <button class="module-btn soul-btn" data-module="SOUL">
+                        <span class="module-icon">▲</span>
+                        <span class="module-name">SOUL</span>
+                    </button>
+                    <button class="module-btn trail-btn" data-module="TRAILBLAZER">
+                        <span class="module-icon">▲</span>
+                        <span class="module-name">TRAILBLAZER</span>
+                    </button>
+                    <button class="module-btn prov-btn" data-module="PROVOCATEUR">
+                        <span class="module-icon">▲</span>
+                        <span class="module-name">PROVOCATEUR</span>
+                    </button>
+                    <button class="module-btn purple-btn" data-module="PURPLE_TRIANGLE">
+                        <span class="module-icon">▲</span>
+                        <span class="module-name">ANALYST</span>
+                    </button>
+                </div>
+            </div>
+
+            <div class="panel-section">
+                <h3>VISUAL SETTINGS</h3>
+                <div class="settings-grid">
+                    <label class="setting-item">
+                        <input type="checkbox" id="toggle-wireframe">
+                        <span>Wireframe Mode</span>
+                    </label>
+                    <label class="setting-item">
+                        <input type="checkbox" id="toggle-particles" checked>
+                        <span>Particles</span>
+                    </label>
+                    <label class="setting-item">
+                        <input type="checkbox" id="toggle-glow" checked>
+                        <span>Glow Effects</span>
+                    </label>
+                    <label class="setting-item">
+                        <input type="checkbox" id="toggle-labels" checked>
+                        <span>Labels</span>
+                    </label>
+                </div>
+            </div>
+
+            <div class="panel-section console-section">
+                <h3>SYSTEM LOG</h3>
+                <div class="console-output" id="console">
+                    <div class="log-entry system">[SYSTEM] Interface initialized...</div>
+                </div>
+            </div>
+
+            <div class="panel-section">
+                <button id="btn-load-protocol" class="btn-primary">
+                    <span>⟳ RELOAD PROTOCOL</span>
+                </button>
+                <button id="btn-export" class="btn-secondary">
+                    <span>📥 EXPORT DATA</span>
+                </button>
+            </div>
+        </aside>
+    </main>
+
+    <!-- Loading Screen -->
+    <div class="loading-screen" id="loading-screen">
+        <div class="loading-content">
+            <div class="loading-spinner"></div>
+            <div class="loading-text">INITIALIZING GENESIS PROTOCOL</div>
+            <div class="loading-progress">
+                <div class="progress-bar" id="progress-bar"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Three.js Library -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>

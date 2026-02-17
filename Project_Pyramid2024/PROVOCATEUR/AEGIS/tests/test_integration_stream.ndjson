@@ -1,0 +1,1 @@
+{"event_id": "evt_http_1771182645585", "origin": "http", "intent": "integration_test", "provider": "example.com", "estimated_cost": 0.0, "latency": 0.0490117073059082, "status": "error", "policy_rules": ["exception:FileNotFoundError"], "timestamp": "2026-02-15T19:10:45.634212+00:00", "user_id": null, "session_id": null, "trust_level": null, "policy_mode": null, "meta": null}

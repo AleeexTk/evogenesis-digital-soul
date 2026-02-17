@@ -1,0 +1,23 @@
+{
+  "meta": {
+    "version": "1.0",
+    "last_sync": "2026-02-14T21:46:00Z"
+  },
+  "short_term": {
+    "current_focus": "System Initialization",
+    "active_users": ["Admin"],
+    "recent_events": []
+  },
+  "long_term": {
+    "principles": [
+      "Protect the user.",
+      "Evolve the system.",
+      "Maintain harmony."
+    ],
+    "learned_facts": {}
+  },
+  "associative": {
+    "nodes": [],
+    "links": []
+  }
+}

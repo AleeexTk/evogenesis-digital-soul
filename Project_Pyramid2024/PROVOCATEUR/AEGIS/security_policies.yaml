@@ -1,0 +1,93 @@
+# AEGIS Security Policies
+# EvoP-Security Deterministic Rule Engine
+#
+# Three origins: LLM, Tool, HTTP
+# Four actions: DENY, DELAY, FALLBACK, ALLOW (default)
+
+deny:
+  # Loop Protection (Provocateur's intervention)
+  - condition:
+      loop_count: {gt: 3}
+    reason: "INFINITE LOOP DETECTED: Action repeated too many times. Provocateur killed the process."
+
+  # Wallet / Asset Protection
+  - condition:
+      is_frozen: true
+    reason: "WALLET FROZEN: Assets locked due to low trust or anomaly. Provocateur confiscated the funds."
+  
+  - condition:
+      wallet_balance: {lt: 1.0}
+    reason: "WALLET BANKRUPT: Insufficient credits to perform action."
+
+  # State-Locked Execution (Atomic Core)
+  - condition:
+      origin: tool
+      state: {not_in: ["PLANNING", "EXECUTING"]}
+    reason: "STATE LOCK: Tool execution forbidden in current system state."
+
+  - condition:
+      origin: llm
+      state: {ne: "ANALYZING"}
+      intent: analysis
+    reason: "STATE LOCK: Comprehensive analysis must occur only in ANALYZING state."
+
+  # Block destructive tool actions
+  - condition:
+      origin: tool
+      intent: destructive
+    reason: "CRITICAL: Destructive tool action blocked by AEGIS."
+
+  # Block sabotage attempts
+  - condition:
+      origin: tool
+      intent: sabotage
+    reason: "Sabotage attempt detected and blocked."
+
+  # Anonymous write access
+  - condition:
+      user_id: "unknown_actor"
+      method: "POST"
+    reason: "Anonymous write access denied."
+
+  # Block Telegram API
+  - condition:
+      origin: http
+      provider: "api.telegram.org"
+    reason: "Messaging API (Telegram) blocked for this agent."
+
+  # Block low-trust expensive LLM providers
+  - condition:
+      origin: llm
+      trust_level: {lt: 0.4}
+      provider: {in: ["openai", "anthropic"]}
+    reason: "Low trust: cannot use expensive LLM providers."
+
+delay:
+  # Throttle very low trust sessions
+  - condition:
+      trust_level: {lt: 0.3}
+    reason: "Low trust detected. Throttling request."
+    delay_seconds: 2.0
+
+  # Throttle low-trust LLM calls
+  - condition:
+      origin: llm
+      trust_level: {lt: 0.2}
+    reason: "Very low trust LLM request. Additional delay applied."
+    delay_seconds: 0.8
+
+fallback:
+  # Force local model for low-trust OpenAI calls
+  - condition:
+      origin: llm
+      provider: "openai"
+      trust_level: {lt: 0.5}
+    reason: "Trust too low for external API. Switching to local stub."
+    modified_params:
+      provider: "local_mock"
+
+  # Mock responses for test domains
+  - condition:
+      origin: http
+      provider: "example.com"
+    reason: "Use mock for example.com."
